@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hopscotch Support Chatbot (Session 1) — Architecture</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0f1117;
+    --bg2:       #181c27;
+    --bg3:       #1e2332;
+    --border:    rgba(255,255,255,0.08);
+    --border2:   rgba(255,255,255,0.14);
+    --text:      #e2e4ed;
+    --muted:     #7c8099;
+    --purple:    #8b7cf8;
+    --purple-bg: rgba(139,124,248,0.12);
+    --amber:     #f0a940;
+    --amber-bg:  rgba(240,169,64,0.12);
+    --teal:      #34c9a0;
+    --teal-bg:   rgba(52,201,160,0.12);
+    --coral:     #f07060;
+    --coral-bg:  rgba(240,112,96,0.12);
+    --gray:      #9ca0b0;
+    --gray-bg:   rgba(156,160,176,0.12);
+    --mono:      'JetBrains Mono', 'Fira Mono', monospace;
+    --sans:      'Inter', system-ui, sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 24px 60px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  header h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: var(--text);
+  }
+  header p {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  .legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 36px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 3px;
+  }
+
+  .diagram-wrap {
+    width: 100%;
+    max-width: 780px;
+  }
+
+  svg text { font-family: var(--sans); }
+
+  /* Node styles */
+  .node-purple rect { fill: var(--purple-bg); stroke: var(--purple); stroke-width: 1; }
+  .node-purple .label { fill: var(--purple); font-size: 13px; font-weight: 600; }
+  .node-purple .sublabel { fill: #a89ef8; font-size: 11px; }
+
+  .node-amber rect { fill: var(--amber-bg); stroke: var(--amber); stroke-width: 1; }
+  .node-amber .label { fill: var(--amber); font-size: 13px; font-weight: 600; }
+  .node-amber .sublabel { fill: #c9974a; font-size: 11px; }
+
+  .node-teal rect { fill: var(--teal-bg); stroke: var(--teal); stroke-width: 1; }
+  .node-teal .label { fill: var(--teal); font-size: 13px; font-weight: 600; }
+  .node-teal .sublabel { fill: #5ec9ad; font-size: 11px; }
+
+  .node-coral rect { fill: var(--coral-bg); stroke: var(--coral); stroke-width: 1; }
+  .node-coral .label { fill: var(--coral); font-size: 13px; font-weight: 600; }
+  .node-coral .sublabel { fill: #d4806f; font-size: 11px; }
+
+  .node-gray rect { fill: var(--gray-bg); stroke: var(--gray); stroke-width: 1; }
+  .node-gray .label { fill: var(--gray); font-size: 13px; font-weight: 600; }
+
+  .pydantic-badge rect { fill: rgba(255,255,255,0.04); stroke: rgba(255,255,255,0.12); stroke-width: 0.75; stroke-dasharray: 3 2; }
+  .pydantic-badge .key { fill: #7c8099; font-size: 10px; font-weight: 500; }
+  .pydantic-badge .val { font-size: 10px; font-weight: 600; }
+  .pydantic-badge .val-purple { fill: #a89ef8; }
+  .pydantic-badge .val-amber  { fill: #d4ac6a; }
+
+  .arr { stroke: rgba(255,255,255,0.22); stroke-width: 1; fill: none; }
+  .arr-label { fill: #5a5f78; font-size: 10px; }
+  .leader { stroke: rgba(255,255,255,0.12); stroke-width: 0.75; stroke-dasharray: 3 2; fill: none; }
+
+  .persist-bar rect { fill: rgba(156,160,176,0.07); stroke: rgba(156,160,176,0.2); stroke-width: 0.75; }
+  .persist-bar text { fill: var(--muted); font-size: 10.5px; }
+
+  /* Tooltip */
+  .tooltip {
+    position: fixed;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--text);
+    max-width: 260px;
+    line-height: 1.5;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 99;
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip .tt-title { font-weight: 600; font-size: 12.5px; margin-bottom: 4px; }
+  .tooltip .tt-code { font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: rgba(255,255,255,0.04); padding: 2px 5px; border-radius: 4px; display: inline-block; margin-top: 3px; }
+
+  .clickable { cursor: pointer; }
+  .clickable rect { transition: filter 0.15s; }
+  .clickable:hover rect { filter: brightness(1.25); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Hopscotch Support Chatbot · Session 1</h1>
+  <p>Architecture diagram · hover nodes for detail · raw openai SDK → OpenRouter → gpt-4o-mini, wrapped in Streamlit</p>
+</header>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#8b7cf8"></div>LLM call (gpt-4o-mini)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f0a940"></div>Gate / check</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#34c9a0"></div>State / data / render</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f07060"></div>Failure path</div>
+  <div class="legend-item"><div class="legend-dot" style="background:rgba(255,255,255,0.08); border:1px dashed rgba(255,255,255,0.2)"></div>Config / state badge</div>
+</div>
+
+<div class="diagram-wrap">
+<svg width="100%" viewBox="0 0 780 890" role="img">
+  <title>Hopscotch Support Chatbot (Session 1) Architecture</title>
+  <desc>Flowchart of the Streamlit app.py: API key check, system prompt built from the policy file, session_state message list as memory, chat input gate, a single OpenAI-SDK call via OpenRouter, and success or error handling.</desc>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="rgba(240,112,96,0.4)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- ── START ── -->
+  <g class="node-gray">
+    <rect x="300" y="16" width="180" height="34" rx="17"/>
+    <text class="label" x="390" y="37" text-anchor="middle">START (script run)</text>
+  </g>
+  <line x1="390" y1="50" x2="390" y2="80" class="arr" marker-end="url(#arr)"/>
+
+  <!-- NODE 1: API key gate -->
+  <g class="node-amber clickable" id="n-key" data-tt="key">
+    <rect x="200" y="80" width="380" height="58" rx="8"/>
+    <text class="label" x="390" y="101" text-anchor="middle">load_dotenv() + API key check</text>
+    <text class="sublabel" x="390" y="118" text-anchor="middle">os.getenv("OPENROUTER_API_KEY") present?</text>
+  </g>
+  <!-- stop branch (left) -->
+  <g class="node-coral clickable" id="n-stop" data-tt="stop">
+    <rect x="14" y="80" width="160" height="58" rx="8"/>
+    <text class="label" x="94" y="101" text-anchor="middle">st.error + st.stop()</text>
+    <text class="sublabel" x="94" y="118" text-anchor="middle">key missing: nothing runs</text>
+  </g>
+  <line x1="200" y1="109" x2="174" y2="109" class="arr" stroke="rgba(240,112,96,0.4)" stroke-dasharray="5 3" marker-end="url(#arr-muted)"/>
+  <!-- .env badge -->
+  <g class="pydantic-badge">
+    <rect x="595" y="82" width="170" height="52" rx="6"/>
+    <text class="key" x="605" y="96">Env config</text>
+    <text class="val val-purple" x="605" y="112" style="font-family:monospace;font-size:11px">.env.example</text>
+    <text class="key" x="605" y="127">OPENROUTER_API_KEY</text>
+  </g>
+  <line x1="580" y1="109" x2="595" y2="109" class="leader"/>
+
+  <line x1="390" y1="138" x2="390" y2="168" class="arr" marker-end="url(#arr)"/>
+
+  <!-- NODE 2: build SYSTEM_PROMPT -->
+  <g class="node-teal clickable" id="n-prompt" data-tt="prompt">
+    <rect x="200" y="168" width="380" height="58" rx="8"/>
+    <text class="label" x="390" y="191" text-anchor="middle">build SYSTEM_PROMPT</text>
+    <text class="sublabel" x="390" y="208" text-anchor="middle">read hopscotch_policy.md → f-string: role + policy + rules</text>
+  </g>
+  <g class="pydantic-badge clickable" id="n-policy" data-tt="policy">
+    <rect x="595" y="170" width="170" height="52" rx="6"/>
+    <text class="key" x="605" y="184">Policy document</text>
+    <text class="val val-purple" x="605" y="200" style="font-family:monospace;font-size:11px">hopscotch_policy.md</text>
+    <text class="key" x="605" y="214">v2026.1 · 4 sections</text>
+  </g>
+  <line x1="580" y1="197" x2="595" y2="197" class="leader"/>
+
+  <line x1="390" y1="226" x2="390" y2="256" class="arr" marker-end="url(#arr)"/>
+
+  <!-- NODE 3: init memory -->
+  <g class="node-teal clickable" id="n-init" data-tt="init">
+    <rect x="200" y="256" width="380" height="58" rx="8"/>
+    <text class="label" x="390" y="279" text-anchor="middle">init st.session_state.messages</text>
+    <text class="sublabel" x="390" y="296" text-anchor="middle">only if absent: [{role: "system", content: SYSTEM_PROMPT}]</text>
+  </g>
+  <g class="pydantic-badge">
+    <rect x="595" y="258" width="170" height="52" rx="6"/>
+    <text class="key" x="605" y="272">Streamlit rerun model</text>
+    <text class="val" x="605" y="288" style="fill:#34c9a0;font-size:11px;font-family:monospace">script re-runs top→bottom</text>
+    <text class="key" x="605" y="302">on every message</text>
+  </g>
+  <line x1="580" y1="285" x2="595" y2="285" class="leader"/>
+  <!-- left state badge -->
+  <g class="pydantic-badge clickable" id="n-state" data-tt="state">
+    <rect x="14" y="250" width="170" height="104" rx="6"/>
+    <text class="key" x="24" y="266">THE MEMORY (list of dicts)</text>
+    <text class="val val-purple" x="24" y="282" style="font-size:10px;font-family:monospace">session_state.messages</text>
+    <text class="key" x="24" y="298">{"role", "content"} per turn</text>
+    <text class="key" x="24" y="312">system → user → assistant …</text>
+    <text class="key" x="24" y="326">whole list resent each call</text>
+    <text class="key" x="24" y="342" style="font-style:italic">Untyped, one per browser tab</text>
+  </g>
+  <line x1="184" y1="285" x2="200" y2="285" class="leader"/>
+
+  <line x1="390" y1="314" x2="390" y2="344" class="arr" marker-end="url(#arr)"/>
+
+  <!-- NODE 4: render history -->
+  <g class="node-teal clickable" id="n-render" data-tt="render">
+    <rect x="200" y="344" width="380" height="58" rx="8"/>
+    <text class="label" x="390" y="367" text-anchor="middle">render chat history</text>
+    <text class="sublabel" x="390" y="384" text-anchor="middle">loop messages, skip system → st.chat_message(role)</text>
+  </g>
+  <g class="pydantic-badge clickable" id="n-sidebar" data-tt="sidebar">
+    <rect x="595" y="346" width="170" height="52" rx="6"/>
+    <text class="key" x="605" y="360">Sidebar</text>
+    <text class="val val-amber" x="605" y="376" style="font-size:11px;font-family:monospace">🧹 Clear chat</text>
+    <text class="key" x="605" y="390">raw history expander</text>
+  </g>
+  <line x1="580" y1="373" x2="595" y2="373" class="leader"/>
+
+  <line x1="390" y1="402" x2="390" y2="432" class="arr" marker-end="url(#arr)"/>
+
+  <!-- NODE 5: chat_input gate -->
+  <g class="node-amber clickable" id="n-input" data-tt="input">
+    <rect x="200" y="432" width="380" height="70" rx="8"/>
+    <text class="label" x="390" y="454" text-anchor="middle">chat_input gate</text>
+    <text class="sublabel" x="390" y="471" text-anchor="middle">if user_text := st.chat_input(...)</text>
+    <text class="sublabel" x="390" y="486" text-anchor="middle">empty → run ends  ·  else append {role: "user"}</text>
+  </g>
+  <g class="pydantic-badge">
+    <rect x="595" y="434" width="170" height="66" rx="6"/>
+    <text class="key" x="605" y="448">README test prompts</text>
+    <text class="val val-amber" x="605" y="464" style="font-size:10px;font-family:monospace">standard return · defect</text>
+    <text class="key" x="605" y="480">child safety · order ₹7,200</text>
+    <text class="key" x="605" y="493">follow-up · Clear chat</text>
+  </g>
+  <line x1="580" y1="467" x2="595" y2="467" class="leader"/>
+
+  <line x1="390" y1="502" x2="390" y2="532" class="arr" marker-end="url(#arr)"/>
+
+  <!-- NODE 6: LLM call -->
+  <g class="node-purple clickable" id="n-llm" data-tt="llm">
+    <rect x="200" y="532" width="380" height="72" rx="8"/>
+    <text class="label" x="390" y="554" text-anchor="middle">client.chat.completions.create</text>
+    <text class="sublabel" x="390" y="571" text-anchor="middle">openai/gpt-4o-mini · temperature=0.3</text>
+    <text class="sublabel" x="390" y="587" text-anchor="middle">messages = WHOLE history · via OpenRouter</text>
+  </g>
+  <g class="pydantic-badge clickable" id="n-client" data-tt="client">
+    <rect x="595" y="534" width="170" height="52" rx="6"/>
+    <text class="key" x="605" y="548">OpenAI SDK client</text>
+    <text class="val val-purple" x="605" y="564" style="font-size:10px;font-family:monospace">base_url=openrouter.ai/api/v1</text>
+    <text class="key" x="605" y="578">MODEL hardcoded</text>
+  </g>
+  <line x1="580" y1="561" x2="595" y2="561" class="leader"/>
+  <!-- Section 4 badge (left) -->
+  <g class="pydantic-badge clickable" id="n-sec4" data-tt="sec4">
+    <rect x="14" y="524" width="170" height="92" rx="6"/>
+    <text class="key" x="24" y="540">Policy §4 escalation</text>
+    <text class="val val-amber" x="24" y="556" style="font-size:10px;font-family:monospace">prompt-only, not code</text>
+    <text class="key" x="24" y="571">child safety · allergy</text>
+    <text class="key" x="24" y="584">order &gt; INR 5,000 · unclear</text>
+    <text class="key" x="24" y="600" style="font-style:italic">Model says "human agent"</text>
+  </g>
+  <line x1="184" y1="568" x2="200" y2="568" class="leader"/>
+
+  <!-- branch arrows -->
+  <path d="M270 604 L230 604 L230 650" class="arr" fill="none" stroke="rgba(255,255,255,0.22)" marker-end="url(#arr)"/>
+  <text class="arr-label" x="205" y="632" text-anchor="middle">success</text>
+  <path d="M510 604 L550 604 L550 650" class="arr" fill="none" stroke="rgba(240,112,96,0.4)" stroke-dasharray="5 3" marker-end="url(#arr-muted)"/>
+  <text class="arr-label" x="582" y="632" text-anchor="middle" style="fill:#d4806f">exception</text>
+
+  <!-- NODE 7: success -->
+  <g class="node-teal clickable" id="n-ok" data-tt="ok">
+    <rect x="100" y="650" width="260" height="58" rx="8"/>
+    <text class="label" x="230" y="673" text-anchor="middle">append reply + render</text>
+    <text class="sublabel" x="230" y="690" text-anchor="middle">reply = choices[0].message.content</text>
+  </g>
+
+  <!-- NODE 8: failure -->
+  <g class="node-coral clickable" id="n-err" data-tt="err">
+    <rect x="420" y="650" width="260" height="58" rx="8"/>
+    <text class="label" x="550" y="673" text-anchor="middle">show error + rollback</text>
+    <text class="sublabel" x="550" y="690" text-anchor="middle">st.error(e) · messages.pop()</text>
+  </g>
+
+  <line x1="230" y1="708" x2="230" y2="738" class="arr" marker-end="url(#arr)"/>
+  <line x1="550" y1="708" x2="550" y2="738" class="arr" stroke="rgba(240,112,96,0.4)" stroke-dasharray="5 3" marker-end="url(#arr-muted)"/>
+  <path d="M230 738 L390 766" class="arr" fill="none" stroke="rgba(255,255,255,0.22)" marker-end="url(#arr)"/>
+  <path d="M550 738 L390 766" class="arr" fill="none" stroke="rgba(255,255,255,0.22)" marker-end="url(#arr)"/>
+
+  <!-- END -->
+  <g class="node-gray">
+    <rect x="300" y="766" width="180" height="34" rx="17"/>
+    <text class="label" x="390" y="787" text-anchor="middle">END (wait for rerun)</text>
+  </g>
+
+  <!-- persistence bar -->
+  <g class="persist-bar">
+    <rect x="30" y="830" width="720" height="30" rx="6"/>
+    <text x="390" y="849" text-anchor="middle">
+      ⚠  No persistence — history lives in st.session_state per browser tab; refresh or Clear chat wipes it (Session 2: session_id)
+    </text>
+  </g>
+</svg>
+</div>
+
+<!-- Tooltip -->
+<div class="tooltip" id="tooltip">
+  <div class="tt-title" id="tt-title"></div>
+  <div id="tt-body"></div>
+</div>
+
+<script>
+const tips = {
+  key: {
+    title: 'load_dotenv() + API key check',
+    body: 'Section 1 of <span class="tt-code">app.py</span>. <span class="tt-code">load_dotenv()</span> copies <span class="tt-code">.env</span> into environment variables, then <span class="tt-code">os.getenv("OPENROUTER_API_KEY")</span> is read. If it is empty the script stops here.'
+  },
+  stop: {
+    title: 'st.error + st.stop()',
+    body: 'Failure path. Shows a message telling you to copy <span class="tt-code">.env.example</span> to <span class="tt-code">.env</span> and get a key from openrouter.ai/keys, then <span class="tt-code">st.stop()</span> halts the run so nothing below executes.'
+  },
+  prompt: {
+    title: 'build SYSTEM_PROMPT',
+    body: 'Reads <span class="tt-code">hopscotch_policy.md</span> with <span class="tt-code">Path(__file__).parent</span>, then glues role + policy + rules with a plain f-string. Rules: answer only from the policy, ask for missing facts, hand Section 4 cases to a human, request photos for defects.'
+  },
+  policy: {
+    title: 'hopscotch_policy.md',
+    body: 'Internal return policy v2026.1: (1) standard returns within 30 days, (2) manufacturing defects up to 90 days with photo evidence, (3) not covered: misuse and wear, (4) mandatory human review.'
+  },
+  init: {
+    title: 'init st.session_state.messages',
+    body: 'Runs only on first load: <span class="tt-code">if "messages" not in st.session_state</span>. Seeds the list with the system message. A normal variable would reset on every Streamlit rerun, so <span class="tt-code">session_state</span> keeps it alive.'
+  },
+  state: {
+    title: 'The message list is the memory',
+    body: 'The LLM is stateless. Memory is just a Python list of <span class="tt-code">{"role","content"}</span> dicts, resent in full each turn. Plain dicts: no types or validation, so a typo in "role" only fails at runtime.'
+  },
+  render: {
+    title: 'render chat history',
+    body: 'Loops <span class="tt-code">st.session_state.messages</span>, skips <span class="tt-code">role == "system"</span>, and draws each turn with <span class="tt-code">st.chat_message(role)</span> + <span class="tt-code">st.markdown</span>.'
+  },
+  sidebar: {
+    title: 'Sidebar controls',
+    body: '<span class="tt-code">Clear chat</span> resets the list to just the system message and calls <span class="tt-code">st.rerun()</span> (bot forgets everything). The expander shows message count and <span class="tt-code">st.json</span> of the raw list. Also lists 4 example prompts.'
+  },
+  input: {
+    title: 'chat_input gate',
+    body: 'Streamlit has no while-loop: each rerun is one loop iteration. <span class="tt-code">st.chat_input</span> returns None until the user submits; with input, the user turn is appended and echoed to the screen.'
+  },
+  llm: {
+    title: 'client.chat.completions.create',
+    body: 'The only LLM call. <span class="tt-code">model="openai/gpt-4o-mini"</span>, <span class="tt-code">temperature=0.3</span>, <span class="tt-code">messages=st.session_state.messages</span> (the whole history, system prompt first). Reply is parsed with an SDK-specific path.'
+  },
+  client: {
+    title: 'OpenAI SDK client',
+    body: '<span class="tt-code">OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")</span>. OpenRouter speaks the OpenAI wire format, so the same SDK is reused. <span class="tt-code">MODEL</span> is hardcoded; switching provider means a rewrite (the Session 2 motivation).'
+  },
+  sec4: {
+    title: 'Policy §4 escalation (prompt-only)',
+    body: 'Child safety, skin reaction/allergy, order above INR 5,000, or unclear facts: the prompt tells the model not to decide and to say the case goes to a human agent. There is no routing code; escalation is purely the model following instructions.'
+  },
+  ok: {
+    title: 'append reply + render',
+    body: '<span class="tt-code">reply = response.choices[0].message.content</span> is appended as <span class="tt-code">{"role": "assistant"}</span> and shown with <span class="tt-code">st.markdown(reply)</span>. On the next rerun it is part of the history.'
+  },
+  err: {
+    title: 'show error + rollback',
+    body: 'The call is wrapped in try/except. On any exception: <span class="tt-code">st.error(...)</span> and <span class="tt-code">messages.pop()</span> drops the unanswered user turn so the list stays consistent.'
+  }
+};
+
+const tt = document.getElementById('tooltip');
+const ttTitle = document.getElementById('tt-title');
+const ttBody = document.getElementById('tt-body');
+
+document.querySelectorAll('[data-tt]').forEach(el => {
+  el.addEventListener('mouseenter', e => {
+    const key = el.dataset.tt;
+    if (!tips[key]) return;
+    ttTitle.textContent = tips[key].title;
+    ttBody.innerHTML = tips[key].body;
+    tt.classList.add('show');
+  });
+  el.addEventListener('mousemove', e => {
+    tt.style.left = (e.clientX + 14) + 'px';
+    tt.style.top  = (e.clientY + 14) + 'px';
+  });
+  el.addEventListener('mouseleave', () => tt.classList.remove('show'));
+});
+</script>
+</body>
+</html>
