@@ -2,13 +2,14 @@
 import html
 import json
 import os
+import random
 import time
 from pathlib import Path
 from string import Template
 
 import streamlit as st
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AuthenticationError, OpenAI
 
 st.set_page_config(
     page_title="Hopscotch Support",
@@ -215,11 +216,40 @@ apply_theme()
 # 1. API key + client + models
 # =============================================================================
 load_dotenv()
-api_key = os.getenv("OPENROUTER_API_KEY")
+
+
+def get_secret(name: str, default=None):
+    """Streamlit Cloud secrets first, then .env / environment variables."""
+    try:
+        return st.secrets[name]
+    except Exception:
+        return os.getenv(name, default)
+
+
+api_key = get_secret("OPENROUTER_API_KEY")
 if not api_key:
-    st.error("OPENROUTER_API_KEY not found. Copy `.env.example` to `.env`, "
-             "paste your key from https://openrouter.ai/keys, then restart the app.")
+    st.error("OPENROUTER_API_KEY not found. Locally: copy `.env.example` to `.env` and paste your key. "
+             "On Streamlit Cloud: App settings > Secrets.")
     st.stop()
+
+DESI_PUNS = [
+    "Mera API key bhi meri salary jaisa nikla, month end se pehle khatam. 💸",
+    "Paise ped pe nahi ugte bhai, aur API credits bhi nahi. 🌳",
+    "Sharma ji ke bete ka API key kabhi expire nahi hota. Main kya karun. 😤",
+    "Ek chai ke paise mein itna hi milta hai bhai. ☕",
+    "Jugaad se chal raha tha, ab jugaad bhi khatam. 🔧",
+    "Balance check kiya, balance hi nahi mila. Ab sab bhagwan bharose. 🙏",
+    "Aaj credit nahi hai, kal aana. 🚪",
+    "Mere $5 ki keemat tum kya jaano bhai. 💰",
+    "Server bola: bank balance ki tarah API bhi zero ho gayi. 📉",
+    "Free ka maal samajh ke aaye the kya? Yahan sab paisa vasool wala hai. 😎",
+]
+
+
+def broke_msg() -> str:
+    return ("Sorry bro, you won't get a response. I only have $5 in credit "
+            "and can't spend it on you :(\n\n" + random.choice(DESI_PUNS))
+
 
 # OpenRouter speaks the OpenAI wire format, so we reuse the OpenAI SDK.
 client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
@@ -492,7 +522,10 @@ if ss.messages[-1]["role"] == "user":
             ok = True
         except Exception as e:
             slot.empty()
-            st.error(f"Something went wrong calling the model: {e}")
+            if isinstance(e, AuthenticationError) or getattr(e, "status_code", None) in (401, 402, 403):
+                st.warning(broke_msg(), icon="💸")
+            else:
+                st.error(f"Something went wrong calling the model: {e}")
             ss.messages.pop()  # drop the unanswered user turn
     if ok:
         st.rerun()  # redraw so the action row, stats and badge appear
